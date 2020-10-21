@@ -11,7 +11,7 @@ The iOS 'megazord' builds all the components into a single library. This is buil
 
 At the moment the MozillaAppServices iOS framework bundles [Glean].
 It depends on the releases `glean-ffi` crate from [crates.io] and the corresponding iOS source code.
-Glean is bundled as a [git submodule] in `components/glean` and the Xcode project references those files.
+Glean is bundled as a [git submodule] in `components/external/glean` and the Xcode project references those files.
 
 To update Glean:
 
@@ -20,14 +20,14 @@ To update Glean:
 3. Update the submodule to the same version (replace `$version` below with the correct version, e.g. `32.3.0`):
 
    ```
-   cd components/glean
+   cd components/external/glean
    git fetch origin
    git checkout v$version
    ```
 4. Commit the changes:
 
     ```
-    git add components/glean
+    git add components/external/glean
     git add megazord/ios/rust/Cargo.toml
     git add Cargo.lock
     ```
