@@ -6,17 +6,22 @@
 //!
 //! "privileged" system calls may require additional handling and should be flagged as such.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use crate::communications::{connect, ConnectHttp, Connection, RegisterResponse};
 use crate::config::PushConfiguration;
 use crate::crypto::{Crypto, Cryptography, KeyV1 as Key};
+use crate::error::{self, ErrorKind, Result};
 use crate::storage::{PushRecord, Storage, Store};
 
-use crate::error::{self, ErrorKind, Result};
+const UPDATE_RATE_LIMITER_INTERVAL: u64 = 24 * 60 * 60; // 500 calls per 24 hours.
+const UPDATE_RATE_LIMITER_MAX_CALLS: u16 = 500;
 
 pub struct PushManager {
     config: PushConfiguration,
     pub conn: ConnectHttp,
     pub store: Store,
+    update_rate_limiter: PersistedRateLimiter,
 }
 
 impl PushManager {
@@ -27,10 +32,15 @@ impl PushManager {
             Store::open_in_memory()?
         };
         let uaid = store.get_meta("uaid")?;
-        let pm = PushManager {
+        let pm = Self {
             config: config.clone(),
             conn: connect(config, uaid, store.get_meta("auth")?)?,
             store,
+            update_rate_limiter: PersistedRateLimiter::new(
+                "update_token",
+                UPDATE_RATE_LIMITER_INTERVAL,
+                UPDATE_RATE_LIMITER_MAX_CALLS,
+            ),
         };
         Ok(pm)
     }
@@ -118,6 +128,9 @@ impl PushManager {
         if self.conn.uaid.is_none() {
             return Err(ErrorKind::GeneralError("No subscriptions created yet.".into()).into());
         }
+        if !self.update_rate_limiter.check(&self.store) {
+            return Ok(false);
+        }
         let result = self.conn.update(&new_token)?;
         self.store
             .update_native_id(self.conn.uaid.as_ref().unwrap(), new_token)?;
@@ -172,6 +185,108 @@ impl PushManager {
         chid: &str,
     ) -> error::Result<Option<crate::storage::PushRecord>> {
         self.store.get_record_by_chid(chid)
+    }
+}
+
+// DB persisted rate limiter.
+// Implementation notes: This saves the timestamp of our latest call and the number of times we have
+// called `Self::check` within the `Self::periodic_interval` interval of time.
+pub struct PersistedRateLimiter {
+    op_name: String,
+    periodic_interval: u64, // In seconds.
+    max_requests_in_interval: u16,
+}
+
+impl PersistedRateLimiter {
+    pub fn new(op_name: &str, periodic_interval: u64, max_requests_in_interval: u16) -> Self {
+        Self {
+            op_name: op_name.to_owned(),
+            periodic_interval,
+            max_requests_in_interval,
+        }
+    }
+
+    pub fn check(&mut self, store: &Store) -> bool {
+        let (timestamp, count) = self.get_counters(store);
+
+        let now = Self::now_secs();
+        if (now - timestamp) >= self.periodic_interval {
+            log::info!(
+                "Resetting. now({}) - {} < {} for {}.",
+                now,
+                timestamp,
+                self.periodic_interval,
+                &self.op_name
+            );
+            let timestamp = Self::now_secs();
+            self.persist_counters(store, timestamp, 0);
+        } else {
+            log::info!(
+                "No need to reset inner timestamp and count for {}.",
+                &self.op_name
+            )
+        }
+
+        // within interval counter
+        if count > self.max_requests_in_interval {
+            log::info!(
+                "Not allowed: innerCount($innerCount) > $MAX_REQUEST_IN_INTERVAL for {}.",
+                &self.op_name
+            );
+            return false;
+        }
+
+        log::info!("Allowed to pass through for {}!", &self.op_name);
+        // Increment the counter and persist it.
+        self.persist_counters(store, timestamp, count + 1);
+
+        true
+    }
+
+    fn db_meta_keys(&self) -> (String, String) {
+        (
+            format!("ratelimit_{}_timestamp", &self.op_name),
+            format!("ratelimit_{}_count", &self.op_name),
+        )
+    }
+
+    fn get_counters(&self, store: &Store) -> (u64, u16) {
+        (
+            store
+                .get_meta(&format!("ratelimit_{}_timestamp", self.op_name))
+                .ok()
+                .flatten()
+                .map(|s| s.parse())
+                .transpose()
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+            store
+                .get_meta(&format!("ratelimit_{}_count", self.op_name))
+                .ok()
+                .flatten()
+                .map(|s| s.parse())
+                .transpose()
+                .ok()
+                .flatten()
+                .unwrap_or_default(),
+        )
+    }
+
+    fn persist_counters(&self, store: &Store, timestamp: u64, count: u16) {
+        let (timestamp_key, count_key) = self.db_meta_keys();
+        let r1 = store.set_meta(&timestamp_key, &timestamp.to_string());
+        let r2 = store.set_meta(&count_key, &count.to_string());
+        if r1.is_err() || r2.is_err() {
+            log::warn!("Error updating persisted counters for {}.", &self.op_name);
+        }
+    }
+
+    fn now_secs() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Current date before unix epoch.")
+            .as_secs()
     }
 }
 
