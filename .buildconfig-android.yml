@@ -1,4 +1,4 @@
-libraryVersion: 65.0.0
+libraryVersion: 68.0.0
 groupId: org.mozilla.appservices
 projects:
   fxaclient:
@@ -72,7 +72,7 @@ projects:
       type: aar
     description: Sync 1.5 remote tabs implementation.
   glean:
-    path: components/glean-megazorded
+    path: components/glean
     artifactId: glean
     publications:
     - name: glean

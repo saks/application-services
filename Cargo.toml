@@ -45,6 +45,13 @@ members = [
     "testing/separated/*/",
 ]
 
+# Don't include git submodules in our workspace, since those packages haven't
+# been written with that in mind. They might work, but they might not.
+exclude = [
+    "components/external/glean/",
+    "components/external/nimbus-sdk/",
+]
+
 # The `default-members` are the things that are built/tested when you run `cargo
 # build`, `cargo test` (or most of the cargo commands not provided by a
 # third-party `cargo-foo` binary) from a workspace root *without* doing one of:

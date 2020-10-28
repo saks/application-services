@@ -15,6 +15,7 @@ pub use push_ffi;
 pub use rc_log_ffi;
 pub use sync_manager_ffi;
 pub use viaduct;
+pub use glean_ffi;
 
 /// In order to support the use case of consumers who don't know about megazords
 /// and don't need our e.g. networking or logging, we consider initialization
