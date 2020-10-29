@@ -92,6 +92,9 @@ commands:
             rustup install <<parameters.rust-version>>
             rustup default <<parameters.rust-version>>
             rustc --version
+      - run:
+          name: Install UniFFI
+          command: cargo install --version 0.3.0 uniffi_bindgen
   build-libs:
     parameters:
       platform:
@@ -296,7 +299,7 @@ jobs:
       - image: circleci/rust:latest
     resource_class: small
     steps:
-      - checkout
+      - full-checkout
       - run: ./automation/check_protobuf_files_current.py
   Lint Bash scripts:
     docker:
