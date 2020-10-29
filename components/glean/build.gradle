@@ -20,6 +20,8 @@
 // the standard builtin metrics. As upstream changes happen in Glean's build
 // process we will need to duplicate them in this file.
 
+import groovy.json.JsonOutput
+
 plugins {
     id "com.jetbrains.python.envs" version "0.0.26"
 }
@@ -27,6 +29,8 @@ plugins {
 apply plugin: 'com.android.library'
 apply plugin: 'kotlin-android'
 apply plugin: 'kotlin-android-extensions'
+
+File GLEAN_PING_SCHEMA_PATH = file("$rootDir/components/external/glean/glean.1.schema.json")
 
 android {
     ndkVersion rootProject.ext.build.ndkVersion
@@ -36,8 +40,13 @@ android {
         minSdkVersion rootProject.ext.build['minSdkVersion']
         targetSdkVersion rootProject.ext.build['targetSdkVersion']
 
+        buildConfigField("String", "JNA_LIBRARY_NAME", "\"megazord\"")
         buildConfigField("String", "LIBRARY_VERSION", "\"${rootProject.ext.library.version}\"")
-        buildConfigField("String", "GLEAN_JNA_LIBRARY_NAME", "\"megazord\"")
+        // Carefully escape the string here so it will support `\` in
+        // Windows paths correctly.
+        buildConfigField("String", "GLEAN_PING_SCHEMA_PATH", JsonOutput.toJson(GLEAN_PING_SCHEMA_PATH.path))
+
+        testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
     }
 
     buildTypes {
@@ -51,11 +60,11 @@ android {
     // We don't have any source files of our own, we're re-packaging the ones
     // from the Glean repo (which is included as a submodule in our repo).
     sourceSets {
-        main {
-            java {
-                srcDir '../external/glean/glean-core/android/src/main/java'
-            }
-        }
+        main.java.srcDirs += "../external/glean/glean-core/android/src/main/java"
+        test.java.srcDirs += "../external/glean/glean-core/android/src/test"
+        test.resources.srcDirs += "../external/glean/glean-core/android/src/test/resources"
+        test.resources.srcDirs += "$buildDir/rustJniLibs/desktop"
+        test.resources.srcDirs += "${project(':full-megazord').buildDir}/rustJniLibs/desktop"
     }
 
     // This is required to support new AndroidX support libraries.
@@ -70,9 +79,41 @@ android {
             jvmTarget = 1.8
         }
     }
+
+    testOptions {
+        unitTests.all {
+            testLogging {
+                showStandardStreams = true
+            }
+
+            maxHeapSize = "1024m"
+        }
+
+        unitTests {
+            includeAndroidResources = true
+        }
+    }
+}
+
+configurations {
+    // There's an interaction between Gradle's resolution of dependencies with different types
+    // (@jar, @aar) for `implementation` and `testImplementation` and with Android Studio's built-in
+    // JUnit test runner.  The runtime classpath in the built-in JUnit test runner gets the
+    // dependency from the `implementation`, which is type @aar, and therefore the JNA dependency
+    // doesn't provide the JNI dispatch libraries in the correct Java resource directories.  I think
+    // what's happening is that @aar type in `implementation` resolves to the @jar type in
+    // `testImplementation`, and that it wins the dependency resolution battle.
+    //
+    // A workaround is to add a new configuration which depends on the @jar type and to reference
+    // the underlying JAR file directly in `testImplementation`.  This JAR file doesn't resolve to
+    // the @aar type in `implementation`.  This works when invoked via `gradle`, but also sets the
+    // correct runtime classpath when invoked with Android Studio's built-in JUnit test runner.
+    // Success!
+    jnaForTest
 }
 
 dependencies {
+    jnaForTest "net.java.dev.jna:jna:$jna_version@jar"
     implementation "net.java.dev.jna:jna:$jna_version@aar"
     implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:$kotlin_version"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.3.5"
@@ -92,9 +133,25 @@ dependencies {
     // using the Glean SDK.
     compileOnly "junit:junit:4.12"
     compileOnly "androidx.work:work-testing:2.2.0"
-}
 
-apply from: "$rootDir/publish.gradle"
+    // For reasons unknown, resolving the jnaForTest configuration directly
+    // trips a nasty issue with the Android-Gradle plugin 3.2.1, like `Cannot
+    // change attributes of configuration ':PROJECT:kapt' after it has been
+    // resolved`.  I think that the configuration is being made a
+    // super-configuration of the testImplementation and then the `.files` is
+    // causing it to be resolved.  Cloning first dissociates the configuration,
+    // avoiding other configurations from being resolved.  Tricky!
+    testImplementation files(configurations.jnaForTest.copyRecursive().files)
+    testImplementation "androidx.test.ext:junit:1.1.1"
+    testImplementation "org.robolectric:robolectric:4.2.1"
+    testImplementation "org.mockito:mockito-core:2.28.2"
+    testImplementation "androidx.test:core-ktx:1.2.0"
+    testImplementation "com.squareup.okhttp3:mockwebserver:3.10.0"
+    testImplementation "androidx.work:work-testing:2.2.0"
+
+    androidTestImplementation "androidx.test:runner:1.2.0"
+    androidTestImplementation "androidx.test.espresso:espresso-core:3.2.0"
+}
 
 // Use the Glean Gradle plugin to generate the builtin metrics definitions for Glean itself.
 // We have to pretend that we're Glean here in order to generate internal-only definitions.
@@ -108,4 +165,21 @@ ext.allowGleanInternal = true
 ext.gleanNamespace = "mozilla.telemetry.glean"
 ext.glean_plugin.apply(project)
 
+// Store the path to the Glean Miniconda installation in a buildConfigField
+// so that unit tests can validate JSON schema.
+// Note that despite the name of this variable it isn't strictly for Miniconda
+// anymore, it's for any sort of Python environment.
+android {
+    defaultConfig {
+        buildConfigField(
+            "String",
+            "GLEAN_MINICONDA_DIR",
+            // Carefully escape the string here so it will support `\` in
+            // Windows paths correctly.
+            JsonOutput.toJson(project.ext.gleanPythonEnvDir.path)
+        )
+    }
+}
+
+apply from: "$rootDir/publish.gradle"
 ext.configurePublish()
