@@ -1,4 +1,4 @@
-# Glean, megazorded with Application Services
+# The Glean SDK, megazorded with Application Services
 
 This is a re-packaging of the [Glean SDK](https://github.com/mozilla/glean/) for Android,
 compiled in a way that works nicely with the application-services [megazord](../../docs/design/megazords.md).
@@ -33,6 +33,6 @@ To update Glean:
     git add megazord/ios/rust/Cargo.toml
     git add Cargo.lock
     ```
-4. Run `./gradlew glean:assemble` to ensure that things still build correctly.
+4. Run `./gradlew glean:test` to ensure that things still work correctly.
    If this returns an error, you may need to update `./build.gradle` to track
    any build changes made in Glean.

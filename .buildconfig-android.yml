@@ -1,4 +1,4 @@
-libraryVersion: 68.0.0
+libraryVersion: 68.0.0-gleanimbuzord
 groupId: org.mozilla.appservices
 projects:
   fxaclient:
@@ -77,7 +77,14 @@ projects:
     publications:
     - name: glean
       type: aar
-    description: Glean, compiled to work with the Application Services full-megazord.
+    description: The Glean SDK, compiled to work with the Application Services full-megazord.
+  nimbus:
+    path: components/nimbus
+    artifactId: nimbus
+    publications:
+    - name: nimbus
+      type: aar
+    description: The Nimbus SDK, compiled to work with the Application Services full-megazord.
   lockbox-megazord:
     uploadSymbols: true
     path: megazords/lockbox/android

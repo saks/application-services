@@ -3,7 +3,7 @@ version: 2.1
 # ⚠️ If you add, rename or delete a job here, please also update .mergify.yml! ⚠️
 
 commands:
-  prepare-checkout:
+  full-checkout:
     steps:
       - checkout
       - run:
